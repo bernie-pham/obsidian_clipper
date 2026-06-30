@@ -96,6 +96,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
 
+    // Paste-image upload: receives { dataUrl, filename, folder } from the sidebar
+    // when the user pastes an image directly into the editor.
+    case 'image:upload': {
+      handleImageUpload(message.dataUrl, message.filename, message.folder)
+        .then(sendResponse)
+        .catch((err) => { sendResponse({ error: err.message }); });
+      return true;
+    }
+
     // Full-tab screenshot (no area selection).
     case 'screenshot:capture': {
       handleScreenshotCapture(message.folder, null).then(sendResponse).catch((err) => {
@@ -309,6 +318,37 @@ async function handleLLMTest({ provider, apiKey, model, endpoint }) {
   const client = new LLMClient({ provider, apiKey, model, endpoint });
   const result = await client.complete('Reply with the single word: ok');
   return { ok: true, reply: result.trim().slice(0, 100) };
+}
+
+// ── Image upload (paste) ──────────────────────────────────────────────────────
+
+/**
+ * Save an image data URL sent from the sidebar (paste event) to the vault.
+ * @param {string} dataUrl  - data:image/...; base64,... URI
+ * @param {string} filename - suggested filename (e.g. "pasted_image_2024-01-01.png")
+ * @param {string|null} folder - target vault folder; falls back to screenshotFolder
+ */
+async function handleImageUpload(dataUrl, filename, folder) {
+  const settings = await getSettings();
+  if (!settings.vaultBaseUrl || !settings.vaultApiKey) {
+    throw new Error('Vault not configured. Please check Settings.');
+  }
+  const targetFolder = (folder || settings.screenshotFolder || 'Screenshots').replace(/\/$/, '');
+
+  // Detect mime type from data URL
+  const mimeMatch = dataUrl.match(/^data:(image\/[a-zA-Z+]+);base64,/);
+  if (!mimeMatch) throw new Error('Invalid image data.');
+  const mimeType = mimeMatch[1];
+
+  const buffer = await (await fetch(dataUrl)).arrayBuffer();
+  const vaultPath = `${targetFolder}/${filename}`;
+  const uploadUrl = `${settings.vaultBaseUrl.replace(/\/$/, '')}/vault/${vaultPath.split('/').map(encodeURIComponent).join('/')}`;
+
+  await vaultFetch('PUT', uploadUrl, buffer, {
+    Authorization: `Bearer ${settings.vaultApiKey}`,
+    'Content-Type': mimeType,
+  });
+  return { path: vaultPath, filename };
 }
 
 // ── Screenshot capture ────────────────────────────────────────────────────────

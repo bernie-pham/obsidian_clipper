@@ -71,6 +71,7 @@ function mountEditor() {
   });
 
   place.addEventListener('click', () => editorView.focus());
+  place.addEventListener('paste', handleEditorPaste);
 }
 
 // ── Load content into editor ────────────────────────────────────────────────
@@ -649,6 +650,59 @@ function renderRelevantList(container, matches) {
     item.addEventListener('click', () => openNoteInEditor(filePath));
     container.appendChild(item);
   });
+}
+
+// ── Paste image ───────────────────────────────────────────────────────────────
+
+/**
+ * Handle paste events on the editor container.
+ * If the clipboard contains one or more image files/items, each image is:
+ *   1. Read as a base64 data URL in the sidebar context.
+ *   2. Uploaded to the vault via the background worker (image:upload).
+ *   3. Inserted as an Obsidian wikilink embed at the current cursor position.
+ *
+ * Plain-text and HTML pastes fall through to ProseMirror's default behaviour.
+ */
+async function handleEditorPaste(e) {
+  const items = Array.from(e.clipboardData?.items || []);
+  const imageItems = items.filter((item) => item.type.startsWith('image/'));
+  if (!imageItems.length) return; // no images — let PM handle it
+
+  e.preventDefault(); // suppress ProseMirror's default paste
+
+  const folder = settings.screenshotFolder || 'Screenshots';
+
+  for (const item of imageItems) {
+    const file = item.getAsFile();
+    if (!file) continue;
+
+    // Derive a timestamped filename, preserving the mime subtype
+    const ext = file.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
+    const filename = `pasted_${stamp}.${ext}`;
+
+    setStatus('Uploading image…');
+
+    try {
+      // Read file as base64 data URL
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Failed to read pasted image.'));
+        reader.readAsDataURL(file);
+      });
+
+      const result = await sendToBackground('image:upload', { dataUrl, filename, folder });
+      if (result?.error) throw new Error(result.error);
+
+      insertTextAtCursor(`![[${result.path}]]`);
+      setStatus('Image uploaded');
+      showToast(`Image saved to ${result.path}`);
+    } catch (err) {
+      setStatus('Upload failed');
+      showToast('Image upload error: ' + err.message, 'error');
+    }
+  }
 }
 
 // ── Screenshot ───────────────────────────────────────────────────────────────

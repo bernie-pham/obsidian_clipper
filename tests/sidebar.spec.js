@@ -1477,3 +1477,176 @@ test('screenshot folder is saved and used when capturing', async ({ sidebarPage:
   const folder = await page.evaluate(() => window.__captureFolder);
   expect(folder).toBe('Assets/Images');
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// Paste image into editor
+// ────────────────────────────────────────────────────────────────────────────
+
+test('pasting a PNG image uploads it and inserts a wikilink', async ({ sidebarPage: page }) => {
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      window.__uploadMsg = msg;
+      if (msg.action === 'image:upload') {
+        cb({ path: 'Screenshots/pasted_2024-01-01_120000.png', filename: 'pasted_2024-01-01_120000.png' });
+      } else {
+        cb({ error: 'unexpected' });
+      }
+    };
+  });
+
+  // Focus the editor and fire a synthetic paste event with a PNG image item
+  await page.locator('.ProseMirror').click();
+  await page.evaluate(() => {
+    const png1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    // Build a fake File from the data URL
+    function dataUrlToFile(dataUrl, filename) {
+      const [header, b64] = dataUrl.split(',');
+      const mime = header.match(/:(.*?);/)[1];
+      const bytes = atob(b64);
+      const arr = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      return new File([arr], filename, { type: mime });
+    }
+    const file = dataUrlToFile(png1x1, 'pasted.png');
+
+    const dt = new DataTransfer();
+    dt.items.add(file);
+
+    const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
+    document.getElementById('editor').dispatchEvent(event);
+  });
+
+  // Status and editor content should reflect the upload
+  await expect(page.locator('#save-status')).toContainText('Image uploaded', { timeout: 5_000 });
+  await expect(page.locator('.ProseMirror')).toContainText('![[Screenshots/pasted_2024-01-01_120000.png]]', { timeout: 5_000 });
+});
+
+test('paste image sends image:upload with correct action, dataUrl, filename, and folder', async ({ sidebarPage: page }) => {
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      window.__uploadMsg = msg;
+      cb({ path: 'Screenshots/pasted_test.png', filename: 'pasted_test.png' });
+    };
+  });
+
+  await page.locator('.ProseMirror').click();
+  await page.evaluate(() => {
+    const png1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    function dataUrlToFile(dataUrl, filename) {
+      const [header, b64] = dataUrl.split(',');
+      const mime = header.match(/:(.*?);/)[1];
+      const bytes = atob(b64);
+      const arr = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      return new File([arr], filename, { type: mime });
+    }
+    const file = dataUrlToFile(png1x1, 'pasted.png');
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt });
+    document.getElementById('editor').dispatchEvent(event);
+  });
+
+  await expect(page.locator('#save-status')).toContainText('Image uploaded', { timeout: 5_000 });
+  const msg = await page.evaluate(() => window.__uploadMsg);
+  expect(msg.action).toBe('image:upload');
+  expect(msg.dataUrl).toMatch(/^data:image\/png;base64,/);
+  expect(msg.filename).toMatch(/^pasted_.*\.png$/);
+  expect(msg.folder).toBe('Screenshots'); // default
+});
+
+test('paste image uses screenshotFolder setting for upload folder', async ({ sidebarPage: page }) => {
+  // Save a custom screenshots folder in settings
+  await page.click('[data-tab="settings"]');
+  await page.fill('#cfg-screenshot-folder', 'MyImages');
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = function (msg, cb) { cb({}); };
+  });
+  await page.click('#btn-save-settings');
+
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      window.__uploadMsg = msg;
+      if (msg.action === 'image:upload') {
+        cb({ path: `${msg.folder}/pasted_test.png`, filename: 'pasted_test.png' });
+      } else {
+        cb({});
+      }
+    };
+  });
+
+  await page.click('[data-tab="editor"]');
+  await page.locator('.ProseMirror').click();
+  await page.evaluate(() => {
+    const png1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    function dataUrlToFile(dataUrl, filename) {
+      const [header, b64] = dataUrl.split(',');
+      const mime = header.match(/:(.*?);/)[1];
+      const bytes = atob(b64);
+      const arr = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      return new File([arr], filename, { type: mime });
+    }
+    const dt = new DataTransfer();
+    dt.items.add(dataUrlToFile(png1x1, 'pasted.png'));
+    document.getElementById('editor').dispatchEvent(
+      new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt })
+    );
+  });
+
+  await expect(page.locator('#save-status')).toContainText('Image uploaded', { timeout: 5_000 });
+  const msg = await page.evaluate(() => window.__uploadMsg);
+  expect(msg.folder).toBe('MyImages');
+});
+
+test('paste image shows error toast when upload fails', async ({ sidebarPage: page }) => {
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      if (msg.action === 'image:upload') {
+        cb({ error: 'Vault not configured. Please check Settings.' });
+      } else {
+        cb({ error: 'unexpected' });
+      }
+    };
+  });
+
+  await page.locator('.ProseMirror').click();
+  await page.evaluate(() => {
+    const png1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    function dataUrlToFile(dataUrl, filename) {
+      const [header, b64] = dataUrl.split(',');
+      const mime = header.match(/:(.*?);/)[1];
+      const bytes = atob(b64);
+      const arr = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      return new File([arr], filename, { type: mime });
+    }
+    const dt = new DataTransfer();
+    dt.items.add(dataUrlToFile(png1x1, 'pasted.png'));
+    document.getElementById('editor').dispatchEvent(
+      new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt })
+    );
+  });
+
+  await expect(page.locator('#save-status')).toContainText('Upload failed', { timeout: 5_000 });
+});
+
+test('pasting plain text does not trigger image upload', async ({ sidebarPage: page }) => {
+  let uploadCalled = false;
+  await page.evaluate(() => {
+    window.__uploadCalled = false;
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      if (msg.action === 'image:upload') window.__uploadCalled = true;
+      cb({});
+    };
+  });
+
+  await page.locator('.ProseMirror').click();
+  // Use keyboard to type — simulates plain text paste via type (no image items)
+  await page.keyboard.type('hello world');
+
+  await page.waitForTimeout(200);
+  uploadCalled = await page.evaluate(() => window.__uploadCalled);
+  expect(uploadCalled).toBe(false);
+  await expect(page.locator('.ProseMirror')).toContainText('hello world');
+});

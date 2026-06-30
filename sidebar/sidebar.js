@@ -14838,6 +14838,7 @@ var SidebarApp = (() => {
       }
     });
     place.addEventListener("click", () => editorView.focus());
+    place.addEventListener("paste", handleEditorPaste);
   }
   function loadMarkdown(markdown) {
     if (!editorView) return;
@@ -15264,6 +15265,37 @@ ${stripped}`;
       item.addEventListener("click", () => openNoteInEditor(filePath));
       container.appendChild(item);
     });
+  }
+  async function handleEditorPaste(e) {
+    const items = Array.from(e.clipboardData?.items || []);
+    const imageItems = items.filter((item) => item.type.startsWith("image/"));
+    if (!imageItems.length) return;
+    e.preventDefault();
+    const folder = settings.screenshotFolder || "Screenshots";
+    for (const item of imageItems) {
+      const file = item.getAsFile();
+      if (!file) continue;
+      const ext = file.type.split("/")[1]?.replace("jpeg", "jpg") || "png";
+      const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
+      const filename = `pasted_${stamp}.${ext}`;
+      setStatus("Uploading image\u2026");
+      try {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error("Failed to read pasted image."));
+          reader.readAsDataURL(file);
+        });
+        const result = await sendToBackground("image:upload", { dataUrl, filename, folder });
+        if (result?.error) throw new Error(result.error);
+        insertTextAtCursor(`![[${result.path}]]`);
+        setStatus("Image uploaded");
+        showToast(`Image saved to ${result.path}`);
+      } catch (err) {
+        setStatus("Upload failed");
+        showToast("Image upload error: " + err.message, "error");
+      }
+    }
   }
   async function captureScreenshot(mode = "area") {
     const btn = document.getElementById("btn-screenshot");

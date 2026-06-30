@@ -9,18 +9,21 @@ A Chrome extension (Manifest V3) that lets you capture web pages and selections 
 ## Features
 
 ### ✂️ Web Capture
+
 - **Capture full page** — extracts the main article content and converts it to clean Markdown
 - **Capture selection** — right-click any selected text and send it to the editor
 - Both modes auto-populate frontmatter: source URL, page title, and capture timestamp
 - Accessible from the side panel toolbar or the right-click context menu
 
 ### 📝 ProseMirror Editor
+
 - Rich markdown editor powered by [ProseMirror](https://prosemirror.net)
 - Frontmatter (title, tags, folder) shown in the header — not cluttering the editor body
 - **Autosave** — debounced 1.5 s after each edit, writes directly to the vault file
 - **Discard** button to abandon a captured draft
 
 ### 🗂️ Vault Integration
+
 - Connects to the [Obsidian Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) community plugin
 - Supports both **plain HTTP** (`http://127.0.0.1:27123`, recommended) and **HTTPS** (`https://127.0.0.1:27124`)
 - **Folder dropdown** — live-filtered combobox with 250 ms debounce, lazily loads all vault folders
@@ -29,15 +32,18 @@ A Chrome extension (Manifest V3) that lets you capture web pages and selections 
 - **Sync from Vault** — pulls the latest version; on conflict saves your editor copy as `<name>.conflict.<ts>.md` and shows a resolution banner
 
 ### 🔍 Search
+
 - Full-text vault search via `POST /search/simple/?query=`
 - Results listed with filename and folder path, clickable to open in the editor
 
 ### 🏷️ AI Tag Suggestions
+
 - One-click **Suggest** button sends note content to your configured LLM
 - Returns 3–7 lowercase kebab-case tags as removable chips
 - Tags stored in YAML frontmatter, synced back to the vault on save
 
 ### ⚙️ Settings
+
 - **Vault**: Local REST API URL and Bearer token
 - **LLM**: Provider (OpenAI, Google Gemini, DeepSeek, or any OpenAI-compatible endpoint), API key, model name, and optional custom endpoint URL
 - Credentials stored in `chrome.storage.local` — never synced, never leaves the service worker
@@ -46,12 +52,12 @@ A Chrome extension (Manifest V3) that lets you capture web pages and selections 
 
 ## Requirements
 
-| Requirement | Detail |
-|---|---|
-| Chrome / Chromium | 114 or later (Side Panel API) |
-| Obsidian | Any recent version |
+| Requirement                                                                        | Detail                                   |
+| ---------------------------------------------------------------------------------- | ---------------------------------------- |
+| Chrome / Chromium                                                                  | 114 or later (Side Panel API)            |
+| Obsidian                                                                           | Any recent version                       |
 | [Local REST API plugin](https://github.com/coddingtonbear/obsidian-local-rest-api) | Install via Obsidian → Community Plugins |
-| Node.js | 18+ (build only) |
+| Node.js                                                                            | 18+ (build only)                         |
 
 ---
 
@@ -162,6 +168,7 @@ Tests use a real Chromium instance with the extension loaded. `chrome.*` APIs ar
 ```
 
 Key test areas:
+
 - Tab navigation and UI state
 - Frontmatter parsing (inline array tags, YAML block list tags, title extraction)
 - Folder combobox (focus, filter, keyboard nav, debounce)
@@ -179,9 +186,9 @@ Notes are saved as standard Obsidian Markdown with YAML frontmatter:
 
 ```markdown
 ---
-title: "My Note Title"
-tags: ["web", "research", "ai"]
-updated: "2024-11-01T12:00:00.000Z"
+title: 'My Note Title'
+tags: ['web', 'research', 'ai']
+updated: '2024-11-01T12:00:00.000Z'
 ---
 
 Note body here…
@@ -193,20 +200,21 @@ Obsidian's block-list tag format is also supported on load:
 
 ```markdown
 tags:
-  - web
-  - research
+
+- web
+- research
 ```
 
 ---
 
 ## LLM Providers
 
-| Provider | Default model | Notes |
-|---|---|---|
-| OpenAI | `gpt-4o-mini` | Standard Chat Completions API |
-| Google Gemini | `gemini-1.5-flash` | Uses `v1beta/models/:model:generateContent` |
-| DeepSeek | `deepseek-chat` | OpenAI-compatible endpoint |
-| OpenAI-compatible | _(custom)_ | Paste any OpenAI-compatible endpoint URL |
+| Provider          | Default model      | Notes                                       |
+| ----------------- | ------------------ | ------------------------------------------- |
+| OpenAI            | `gpt-4o-mini`      | Standard Chat Completions API               |
+| Google Gemini     | `gemini-1.5-flash` | Uses `v1beta/models/:model:generateContent` |
+| DeepSeek          | `deepseek-chat`    | OpenAI-compatible endpoint                  |
+| OpenAI-compatible | _(custom)_         | Paste any OpenAI-compatible endpoint URL    |
 
 API keys are stored in `chrome.storage.local` and only used from the service worker — they are never accessible from page-context scripts.
 
@@ -214,13 +222,13 @@ API keys are stored in `chrome.storage.local` and only used from the service wor
 
 ## Permissions
 
-| Permission | Why |
-|---|---|
-| `sidePanel` | Persistent side panel UI |
-| `storage` | Save settings and credentials locally |
-| `activeTab` | Capture the current page via content script |
-| `contextMenus` | Right-click "Capture page / selection" menu items |
-| `host_permissions: 127.0.0.1, localhost` | Direct `fetch()` to the Obsidian Local REST API |
+| Permission                               | Why                                               |
+| ---------------------------------------- | ------------------------------------------------- |
+| `sidePanel`                              | Persistent side panel UI                          |
+| `storage`                                | Save settings and credentials locally             |
+| `activeTab`                              | Capture the current page via content script       |
+| `contextMenus`                           | Right-click "Capture page / selection" menu items |
+| `host_permissions: 127.0.0.1, localhost` | Direct `fetch()` to the Obsidian Local REST API   |
 
 ---
 
