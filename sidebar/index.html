@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Obsidian Clipper</title>
+  <link rel="stylesheet" href="sidebar.css" />
+</head>
+<body>
+  <!-- ── Header ───────────────────────────────────────────────────────── -->
+  <header class="app-header">
+    <div class="app-logo">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2L4 6v6c0 5.25 3.5 10.15 8 11.35C16.5 22.15 20 17.25 20 12V6L12 2z" fill="#7c3aed" opacity="0.85"/>
+        <path d="M9 12l2 2 4-4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>Obsidian Clipper</span>
+    </div>
+    <div class="header-actions">
+      <button id="btn-capture-page" class="icon-btn" title="Capture current page">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+      </button>
+      <button id="btn-new-note" class="icon-btn" title="New blank note">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Toast notification ────────────────────────────────────────────── -->
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- ── Tab bar ──────────────────────────────────────────────────────── -->
+  <nav class="tab-bar" role="tablist">
+    <button class="tab-btn active" data-tab="editor" role="tab" aria-selected="true">Editor</button>
+    <button class="tab-btn" data-tab="recent" role="tab" aria-selected="false">Recent</button>
+    <button class="tab-btn" data-tab="search" role="tab" aria-selected="false">Search</button>
+    <button class="tab-btn" data-tab="settings" role="tab" aria-selected="false">Settings</button>
+  </nav>
+
+  <!-- ── Views ────────────────────────────────────────────────────────── -->
+  <main class="view-container">
+
+    <!-- Editor / New Note -->
+    <section id="tab-editor" class="tab-view active" role="tabpanel">
+      <div class="note-meta-row">
+        <input id="note-title" class="note-title-input" type="text" placeholder="Note title…" />
+        <button id="btn-sync" class="icon-btn" title="Sync from vault" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        </button>
+        <button id="btn-open-obsidian" class="icon-btn" title="Open in Obsidian" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </button>
+      </div>
+
+      <div class="frontmatter-bar" id="frontmatter-bar">
+        <div class="fm-row">
+          <label class="fm-label">Folder</label>
+          <!-- Folder combobox: free-type input with live dropdown -->
+          <div class="folder-combobox" id="folder-combobox">
+            <input id="fm-folder" class="fm-input" type="text"
+              placeholder="e.g. Clippings/"
+              autocomplete="off"
+              role="combobox"
+              aria-expanded="false"
+              aria-haspopup="listbox"
+              aria-controls="folder-listbox" />
+            <ul id="folder-listbox" class="folder-listbox" role="listbox" hidden></ul>
+          </div>
+        </div>
+        <div class="fm-row">
+          <label class="fm-label">Tags</label>
+          <div id="tag-chips" class="tag-chips"></div>
+          <input id="fm-tag-input" class="fm-tag-input" type="text" placeholder="Add tag…" />
+          <button id="btn-suggest-tags" class="suggest-tags-btn" title="Suggest tags with AI">✦ Suggest</button>
+        </div>
+      </div>
+
+      <!-- ProseMirror editor mount point -->
+      <div id="editor" class="pm-editor"></div>
+
+      <!-- Conflict banner — shown only when sync finds diverged content -->
+      <div id="conflict-banner" class="conflict-banner" hidden>
+        <p class="conflict-title">⚠ Conflict detected</p>
+        <p class="conflict-body">The vault version differs from your editor. Both copies have been saved — resolve by choosing one or merging manually in Obsidian.</p>
+        <div class="conflict-actions">
+          <button id="btn-conflict-keep-mine" class="btn-secondary compact">Keep mine</button>
+          <button id="btn-conflict-keep-vault" class="btn-primary compact">Use vault version</button>
+        </div>
+      </div>
+
+      <div class="editor-footer">
+        <span id="save-status" class="save-status">—</span>
+        <div class="editor-footer-actions">
+          <button id="btn-discard" class="btn-secondary" style="display:none">Discard</button>
+          <button id="btn-save" class="btn-primary">Save to Vault</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Recent Notes -->
+    <section id="tab-recent" class="tab-view" role="tabpanel">
+      <div class="section-header">
+        <h2 class="section-title">Recent Notes</h2>
+        <button id="btn-refresh-recent" class="icon-btn" title="Refresh">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        </button>
+      </div>
+      <div id="recent-list" class="file-list">
+        <p class="empty-state">Connect your vault in Settings to see recent notes.</p>
+      </div>
+    </section>
+
+    <!-- Search -->
+    <section id="tab-search" class="tab-view" role="tabpanel">
+      <div class="search-bar-row">
+        <input id="search-input" class="search-input" type="text" placeholder="Search vault…" />
+        <button id="btn-search" class="btn-primary compact">Search</button>
+      </div>
+      <div id="search-results" class="file-list">
+        <p class="empty-state">Enter a query and press Search.</p>
+      </div>
+    </section>
+
+    <!-- Settings -->
+    <section id="tab-settings" class="tab-view" role="tabpanel">
+      <h2 class="section-title">Vault Connection</h2>
+      <div class="settings-group">
+        <label class="settings-label" for="cfg-base-url">Local REST API URL</label>
+        <input id="cfg-base-url" class="settings-input" type="text" placeholder="http://127.0.0.1:27123" />
+        <p class="settings-hint">Install the <strong>Local REST API</strong> community plugin in Obsidian. Use <code>http://127.0.0.1:27123</code> (plain HTTP, recommended) or <code>https://127.0.0.1:27124</code> (HTTPS — accept the cert in your browser first). Copy your API key from the plugin settings panel in Obsidian.</p>
+      </div>
+      <div class="settings-group">
+        <label class="settings-label" for="cfg-api-key">API Key</label>
+        <input id="cfg-api-key" class="settings-input" type="password" placeholder="Paste your API key…" />
+      </div>
+      <div class="settings-group">
+        <label class="settings-label" for="cfg-default-folder">Default Folder</label>
+        <input id="cfg-default-folder" class="settings-input" type="text" placeholder="e.g. Clippings/" />
+      </div>
+      <div class="settings-group connection-test-row">
+        <button id="btn-test-connection" class="btn-secondary">Test Connection</button>
+        <span id="connection-status" class="connection-status"></span>
+      </div>
+
+      <h2 class="section-title" style="margin-top:24px">LLM / AI Settings</h2>
+      <div class="settings-group">
+        <label class="settings-label" for="cfg-llm-provider">Provider</label>
+        <select id="cfg-llm-provider" class="settings-input">
+          <option value="openai">OpenAI</option>
+          <option value="gemini">Google Gemini</option>
+          <option value="deepseek">DeepSeek</option>
+          <option value="openai_compatible">OpenAI-compatible (custom)</option>
+        </select>
+      </div>
+      <div class="settings-group">
+        <label class="settings-label" for="cfg-llm-api-key">LLM API Key</label>
+        <input id="cfg-llm-api-key" class="settings-input" type="password" placeholder="sk-…" />
+      </div>
+      <div class="settings-group">
+        <label class="settings-label" for="cfg-llm-model">Model</label>
+        <input id="cfg-llm-model" class="settings-input" type="text" placeholder="e.g. gpt-4o-mini" />
+      </div>
+      <div class="settings-group" id="custom-endpoint-group" style="display:none">
+        <label class="settings-label" for="cfg-llm-endpoint">Custom Endpoint URL</label>
+        <input id="cfg-llm-endpoint" class="settings-input" type="text" placeholder="https://…/v1/chat/completions" />
+      </div>
+      <div class="settings-group connection-test-row">
+        <button id="btn-test-llm" class="btn-secondary">Test LLM</button>
+        <span id="llm-status" class="connection-status"></span>
+      </div>
+
+      <div class="settings-footer">
+        <button id="btn-save-settings" class="btn-primary">Save Settings</button>
+        <span id="settings-status" class="save-status"></span>
+      </div>
+    </section>
+  </main>
+
+  <!-- ProseMirror bundled locally by esbuild (no remote imports — MV3 CSP compliant) -->
+  <script src="sidebar.js"></script>
+</body>
+</html>
