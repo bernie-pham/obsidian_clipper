@@ -14802,6 +14802,7 @@ var SidebarApp = (() => {
   var conflictVaultContent = null;
   var tags = [];
   var settings = {};
+  var editorMode = "edit";
   (async function init() {
     settings = await loadSettings();
     mountEditor();
@@ -14839,6 +14840,13 @@ var SidebarApp = (() => {
     });
     place.addEventListener("click", () => editorView.focus());
     place.addEventListener("paste", handleEditorPaste);
+    const sourceEl = document.getElementById("markdown-source");
+    if (sourceEl) {
+      sourceEl.addEventListener("input", () => {
+        scheduleAutosave();
+        setStatus("Unsaved changes");
+      });
+    }
   }
   function loadMarkdown(markdown) {
     if (!editorView) return;
@@ -14851,8 +14859,12 @@ var SidebarApp = (() => {
       plugins: editorView.state.plugins
     });
     editorView.updateState(state);
+    if (editorMode !== "edit") switchEditorMode("edit");
   }
   function getMarkdown() {
+    if (editorMode === "markdown") {
+      return document.getElementById("markdown-source")?.value ?? "";
+    }
     if (!editorView) return "";
     const fragment = DOMSerializer.fromSchema(mySchema).serializeFragment(
       editorView.state.doc.content
@@ -14860,6 +14872,38 @@ var SidebarApp = (() => {
     const div = document.createElement("div");
     div.appendChild(fragment);
     return htmlToMarkdown(div.innerHTML);
+  }
+  function switchEditorMode(mode) {
+    const editorEl = document.getElementById("editor");
+    const sourceEl = document.getElementById("markdown-source");
+    const btnEdit = document.getElementById("btn-mode-edit");
+    const btnMd = document.getElementById("btn-mode-preview");
+    if (mode === "markdown" && editorMode !== "markdown") {
+      sourceEl.value = getMarkdown();
+      editorMode = "markdown";
+      editorEl.hidden = true;
+      sourceEl.hidden = false;
+      btnEdit.classList.remove("active");
+      btnEdit.setAttribute("aria-pressed", "false");
+      btnMd.classList.add("active");
+      btnMd.setAttribute("aria-pressed", "true");
+      sourceEl.focus();
+    } else if (mode === "edit" && editorMode !== "edit") {
+      const md = sourceEl.value;
+      editorMode = "edit";
+      const html = markdownToHTML(md);
+      const dom = new DOMParser().parseFromString(html, "text/html");
+      const doc3 = DOMParser2.fromSchema(mySchema).parse(dom.body);
+      const state = EditorState.create({ doc: doc3, schema: mySchema, plugins: editorView.state.plugins });
+      editorView.updateState(state);
+      editorEl.hidden = false;
+      sourceEl.hidden = true;
+      btnEdit.classList.add("active");
+      btnEdit.setAttribute("aria-pressed", "true");
+      btnMd.classList.remove("active");
+      btnMd.setAttribute("aria-pressed", "false");
+      editorView.focus();
+    }
   }
   function loadCapture(payload) {
     const { markdown, meta, type } = payload;
@@ -15548,6 +15592,8 @@ ${stripped}`;
         tagInput.value = "";
       }
     });
+    document.getElementById("btn-mode-edit").addEventListener("click", () => switchEditorMode("edit"));
+    document.getElementById("btn-mode-preview").addEventListener("click", () => switchEditorMode("markdown"));
     document.getElementById("btn-screenshot").addEventListener("click", () => captureScreenshot("area"));
     document.getElementById("btn-suggest-tags").addEventListener("click", suggestTags);
     document.getElementById("btn-find-relevant").addEventListener("click", findRelevantNotes);

@@ -95,8 +95,17 @@
         </div>
       </div>
 
-      <!-- ProseMirror editor mount point -->
+      <!-- Edit / Markdown mode toggle -->
+      <div class="editor-mode-bar">
+        <button id="btn-mode-edit" class="mode-btn active" aria-pressed="true">Edit</button>
+        <button id="btn-mode-preview" class="mode-btn" aria-pressed="false">Markdown</button>
+      </div>
+
+      <!-- ProseMirror editor mount point (Edit mode) -->
       <div id="editor" class="pm-editor"></div>
+
+      <!-- Raw markdown textarea (Markdown mode) -->
+      <textarea id="markdown-source" class="md-source" hidden spellcheck="false" placeholder="Write markdown here…"></textarea>
 
       <!-- Conflict banner — shown only when sync finds diverged content -->
       <div id="conflict-banner" class="conflict-banner" hidden>

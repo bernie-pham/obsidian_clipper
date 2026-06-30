@@ -309,6 +309,63 @@ html, body {
 .suggest-tags-btn:hover { background: var(--accent-light); }
 .suggest-tags-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* ── Edit / Preview mode toggle ─────────────────────────────────────────── */
+.editor-mode-bar {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  flex-shrink: 0;
+  margin-bottom: 6px;
+  width: fit-content;
+}
+
+.mode-btn {
+  background: none;
+  border: none;
+  padding: 4px 14px;
+  font-size: 12px;
+  font-family: var(--font);
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 1.6;
+  transition: background 0.1s, color 0.1s;
+}
+.mode-btn + .mode-btn {
+  border-left: 1px solid var(--border);
+}
+.mode-btn.active,
+.mode-btn[aria-pressed="true"] {
+  background: var(--accent-light);
+  color: var(--accent);
+  font-weight: 600;
+}
+.mode-btn:hover:not(.active):not([aria-pressed="true"]) {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* ── Raw markdown textarea (Markdown mode) ──────────────────────────────── */
+.md-source {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  resize: none;
+  padding: 10px 12px;
+  font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text);
+  background: var(--surface);
+  outline: none;
+  min-height: 120px;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+.md-source:focus { border-color: var(--accent); background: var(--bg); }
+
 /* ── ProseMirror editor ──────────────────────────────────────────────────── */
 .pm-editor {
   flex: 1;

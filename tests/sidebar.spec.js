@@ -1650,3 +1650,103 @@ test('pasting plain text does not trigger image upload', async ({ sidebarPage: p
   expect(uploadCalled).toBe(false);
   await expect(page.locator('.ProseMirror')).toContainText('hello world');
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// Edit / Markdown mode toggle
+// ────────────────────────────────────────────────────────────────────────────
+
+test('Edit and Markdown buttons are present in the editor panel', async ({ sidebarPage: page }) => {
+  await expect(page.locator('#btn-mode-edit')).toBeVisible();
+  await expect(page.locator('#btn-mode-preview')).toBeVisible();
+  await expect(page.locator('#btn-mode-preview')).toHaveText('Markdown');
+});
+
+test('Edit button is active and Markdown button is inactive by default', async ({ sidebarPage: page }) => {
+  await expect(page.locator('#btn-mode-edit')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#btn-mode-preview')).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('ProseMirror editor is visible and markdown textarea is hidden by default', async ({ sidebarPage: page }) => {
+  await expect(page.locator('#editor')).toBeVisible();
+  await expect(page.locator('#markdown-source')).toBeHidden();
+});
+
+test('clicking Markdown hides the rich editor and shows the raw textarea', async ({ sidebarPage: page }) => {
+  await page.click('#btn-mode-preview');
+  await expect(page.locator('#editor')).toBeHidden();
+  await expect(page.locator('#markdown-source')).toBeVisible();
+});
+
+test('clicking Markdown sets aria-pressed correctly on both buttons', async ({ sidebarPage: page }) => {
+  await page.click('#btn-mode-preview');
+  await expect(page.locator('#btn-mode-preview')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#btn-mode-edit')).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('clicking Edit after Markdown restores ProseMirror and hides textarea', async ({ sidebarPage: page }) => {
+  await page.click('#btn-mode-preview');
+  await page.click('#btn-mode-edit');
+  await expect(page.locator('#editor')).toBeVisible();
+  await expect(page.locator('#markdown-source')).toBeHidden();
+  await expect(page.locator('#btn-mode-edit')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('switching to Markdown shows raw markdown source of editor content', async ({ sidebarPage: page }) => {
+  await page.locator('.ProseMirror').click();
+  await page.keyboard.type('Hello markdown');
+
+  await page.click('#btn-mode-preview');
+
+  // The textarea should contain the raw text (not HTML)
+  await expect(page.locator('#markdown-source')).toHaveValue(/Hello markdown/);
+});
+
+test('edits made in Markdown mode are reflected back in the rich editor', async ({ sidebarPage: page }) => {
+  await page.click('#btn-mode-preview');
+
+  // Clear and type new markdown directly into the textarea
+  await page.locator('#markdown-source').fill('# Raw heading\n\nBody from textarea.');
+
+  // Switch back to Edit mode
+  await page.click('#btn-mode-edit');
+
+  // ProseMirror should now contain the content from the textarea
+  await expect(page.locator('.ProseMirror')).toContainText('Raw heading');
+  await expect(page.locator('.ProseMirror')).toContainText('Body from textarea.');
+});
+
+test('Markdown textarea contains wikilink text as plain markdown', async ({ sidebarPage: page }) => {
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      if (msg.action === 'screenshot:area') {
+        cb({ path: 'Screenshots/test.png', filename: 'test.png' });
+      } else { cb({}); }
+    };
+  });
+
+  await page.click('#btn-screenshot');
+  await expect(page.locator('#save-status')).toContainText('Screenshot saved', { timeout: 5_000 });
+
+  await page.click('#btn-mode-preview');
+  // Wikilink should appear as raw markdown in the textarea
+  await expect(page.locator('#markdown-source')).toHaveValue(/!\[\[Screenshots\/test\.png\]\]/);
+});
+
+test('editing in Markdown mode triggers Unsaved changes status', async ({ sidebarPage: page }) => {
+  // Need a saved file path for autosave to fire; just check the status text
+  await page.click('#btn-mode-preview');
+  await page.locator('#markdown-source').fill('some content');
+  await expect(page.locator('#save-status')).toContainText('Unsaved changes', { timeout: 3_000 });
+});
+
+test('loading new content resets to Edit mode', async ({ sidebarPage: page }) => {
+  await page.click('#btn-mode-preview');
+  await expect(page.locator('#editor')).toBeHidden();
+
+  // Click New Note — calls loadMarkdown('') which should flip back to Edit
+  await page.click('#btn-new-note');
+
+  await expect(page.locator('#editor')).toBeVisible();
+  await expect(page.locator('#markdown-source')).toBeHidden();
+  await expect(page.locator('#btn-mode-edit')).toHaveAttribute('aria-pressed', 'true');
+});

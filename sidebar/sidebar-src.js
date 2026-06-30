@@ -23,6 +23,7 @@ let allFolders = [];          // cached vault folder list
 let conflictVaultContent = null; // holds vault copy during a conflict
 let tags = [];
 let settings = {};
+let editorMode = 'edit'; // 'edit' | 'preview'
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 (async function init() {
@@ -72,6 +73,15 @@ function mountEditor() {
 
   place.addEventListener('click', () => editorView.focus());
   place.addEventListener('paste', handleEditorPaste);
+
+  // Autosave and status tracking for the raw Markdown textarea
+  const sourceEl = document.getElementById('markdown-source');
+  if (sourceEl) {
+    sourceEl.addEventListener('input', () => {
+      scheduleAutosave();
+      setStatus('Unsaved changes');
+    });
+  }
 }
 
 // ── Load content into editor ────────────────────────────────────────────────
@@ -86,9 +96,15 @@ function loadMarkdown(markdown) {
     plugins: editorView.state.plugins,
   });
   editorView.updateState(state);
+  // Always switch back to Edit (rich-text) mode when new content is loaded.
+  if (editorMode !== 'edit') switchEditorMode('edit');
 }
 
 function getMarkdown() {
+  // In Markdown mode the source-of-truth is the textarea.
+  if (editorMode === 'markdown') {
+    return document.getElementById('markdown-source')?.value ?? '';
+  }
   if (!editorView) return '';
   const fragment = DOMSerializer.fromSchema(mySchema).serializeFragment(
     editorView.state.doc.content
@@ -96,6 +112,55 @@ function getMarkdown() {
   const div = document.createElement('div');
   div.appendChild(fragment);
   return htmlToMarkdown(div.innerHTML);
+}
+
+// ── Edit / Markdown mode ─────────────────────────────────────────────────────
+
+/**
+ * Switch between 'edit' (ProseMirror rich-text) and 'markdown' (raw textarea).
+ *
+ * Edit → Markdown : serialise current ProseMirror content into the textarea.
+ * Markdown → Edit : parse textarea content back into ProseMirror (without
+ *                   re-triggering a mode reset loop).
+ *
+ * @param {'edit'|'markdown'} mode
+ */
+function switchEditorMode(mode) {
+  const editorEl  = document.getElementById('editor');
+  const sourceEl  = document.getElementById('markdown-source');
+  const btnEdit    = document.getElementById('btn-mode-edit');
+  const btnMd      = document.getElementById('btn-mode-preview'); // reuses existing id
+
+  if (mode === 'markdown' && editorMode !== 'markdown') {
+    // Flush ProseMirror → textarea before switching
+    sourceEl.value = getMarkdown();
+    editorMode = 'markdown';
+    editorEl.hidden  = true;
+    sourceEl.hidden  = false;
+    btnEdit.classList.remove('active');
+    btnEdit.setAttribute('aria-pressed', 'false');
+    btnMd.classList.add('active');
+    btnMd.setAttribute('aria-pressed', 'true');
+    sourceEl.focus();
+
+  } else if (mode === 'edit' && editorMode !== 'edit') {
+    // Flush textarea → ProseMirror before switching
+    const md = sourceEl.value;
+    editorMode = 'edit'; // set before loadMarkdown to prevent recursion
+    const html = markdownToHTML(md);
+    const dom = new DOMParser().parseFromString(html, 'text/html');
+    const doc = PMDOMParser.fromSchema(mySchema).parse(dom.body);
+    const state = EditorState.create({ doc, schema: mySchema, plugins: editorView.state.plugins });
+    editorView.updateState(state);
+
+    editorEl.hidden  = false;
+    sourceEl.hidden  = true;
+    btnEdit.classList.add('active');
+    btnEdit.setAttribute('aria-pressed', 'true');
+    btnMd.classList.remove('active');
+    btnMd.setAttribute('aria-pressed', 'false');
+    editorView.focus();
+  }
 }
 
 // ── Capture result from content.js ─────────────────────────────────────────
@@ -1002,6 +1067,9 @@ function bindUI() {
       tagInput.value = '';
     }
   });
+
+  document.getElementById('btn-mode-edit').addEventListener('click', () => switchEditorMode('edit'));
+  document.getElementById('btn-mode-preview').addEventListener('click', () => switchEditorMode('markdown'));
 
   document.getElementById('btn-screenshot').addEventListener('click', () => captureScreenshot('area'));
   document.getElementById('btn-suggest-tags').addEventListener('click', suggestTags);
