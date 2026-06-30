@@ -451,6 +451,59 @@ html, body {
 
 .file-item-actions { display: flex; gap: 2px; flex-shrink: 0; }
 
+/* ── Relevant Notes tab ──────────────────────────────────────────────────── */
+.relevant-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.relevant-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+.relevant-item {
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px;
+}
+
+.relevant-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.relevant-item-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.relevance-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-light);
+  border-radius: 8px;
+  padding: 1px 6px;
+  letter-spacing: 0.02em;
+}
+
+.relevant-reason {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+  white-space: normal;
+}
+
 /* ── Search bar ──────────────────────────────────────────────────────────── */
 .search-bar-row {
   display: flex;

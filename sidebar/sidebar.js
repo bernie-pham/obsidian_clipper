@@ -14867,23 +14867,14 @@ var SidebarApp = (() => {
     if (meta?.title) {
       document.getElementById("note-title").value = sanitizeFilename(meta.title);
     }
-    const frontmatter = buildFrontmatter(meta, type);
-    loadMarkdown(frontmatter + "\n" + markdown);
+    tags = [];
+    renderTags();
+    const body = markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trimStart();
+    loadMarkdown(body);
     document.getElementById("btn-open-obsidian").disabled = true;
     document.getElementById("btn-discard").style.display = "inline-block";
     setStatus("Captured \u2014 review and save");
     showToast(`Page captured${type === "selection" ? " (selection)" : ""}`);
-  }
-  function buildFrontmatter(meta, type) {
-    return [
-      "---",
-      `source: "${meta?.url || ""}"`,
-      `title: "${(meta?.title || "").replace(/"/g, "'")}"`,
-      `captured: "${meta?.capturedAt || (/* @__PURE__ */ new Date()).toISOString()}"`,
-      `type: ${type === "selection" ? "clip" : "article"}`,
-      `tags: []`,
-      "---"
-    ].join("\n");
   }
   async function saveToVault(isAutosave = false) {
     const title = document.getElementById("note-title").value.trim();
@@ -15195,6 +15186,85 @@ ${stripped}`;
       showToast("Error: " + err.message, "error");
     }
   }
+  async function findRelevantNotes() {
+    const list = document.getElementById("relevant-list");
+    list.innerHTML = '<p class="empty-state"><span class="spinner"></span> Analysing page\u2026</p>';
+    try {
+      const pageData = await sendToBackground("captureCurrentTab", { type: "page" });
+      if (pageData?.error) {
+        showRelevantError(list, pageData.error);
+        return;
+      }
+      const pageText = (pageData?.markdown || "").slice(0, 4e3);
+      if (!pageText.trim()) {
+        showRelevantError(list, "Could not extract page content. Make sure you are on a regular website (http/https).");
+        return;
+      }
+      list.innerHTML = '<p class="empty-state"><span class="spinner"></span> Loading vault index\u2026</p>';
+      const indexResult = await sendToBackground("vault:list-notes", {});
+      if (indexResult?.error) throw new Error(indexResult.error);
+      const notes = indexResult?.notes || [];
+      if (!notes.length) {
+        showRelevantError(list, "No notes found in vault. Check your Settings connection.");
+        return;
+      }
+      list.innerHTML = '<p class="empty-state"><span class="spinner"></span> Finding relevant notes\u2026</p>';
+      const result = await sendToBackground("llm:request", { task: "relevant", content: pageText, notes });
+      if (result?.error) throw new Error(result.error);
+      const matches2 = result?.matches || [];
+      if (!matches2.length) {
+        list.innerHTML = '<p class="empty-state">No relevant notes found for this page.</p>';
+        return;
+      }
+      renderRelevantList(list, matches2);
+    } catch (err) {
+      showRelevantError(list, err.message);
+    }
+  }
+  function showRelevantError(container, message) {
+    container.innerHTML = `
+    <div class="relevant-error">
+      <p class="empty-state">${escapeHTML(message)}</p>
+      <button id="btn-relevant-retry" class="btn-secondary compact">Retry</button>
+    </div>
+  `;
+    container.querySelector("#btn-relevant-retry").addEventListener("click", findRelevantNotes);
+  }
+  function renderRelevantList(container, matches2) {
+    container.innerHTML = "";
+    matches2.forEach(({ path: filePath, title, reason, score }) => {
+      const parts = filePath.split("/");
+      parts.pop();
+      const folder = parts.join("/");
+      const pct = Math.round(score * 100);
+      const item = document.createElement("div");
+      item.className = "file-item relevant-item";
+      item.dataset.filepath = filePath;
+      item.innerHTML = `
+      <div class="relevant-item-main">
+        <div class="relevant-item-header">
+          <span class="file-item-name">${escapeHTML(title)}</span>
+          <span class="relevance-badge" title="Relevance score">${pct}%</span>
+        </div>
+        <span class="relevant-reason">${escapeHTML(reason)}</span>
+        ${folder ? `<span class="file-item-path">${escapeHTML(folder)}</span>` : ""}
+      </div>
+      <div class="file-item-actions">
+        <button class="icon-btn" data-path="${escapeHTML(filePath)}" title="Open in editor" data-action="edit">\u270E</button>
+        <button class="icon-btn" data-path="${escapeHTML(filePath)}" title="Open in Obsidian" data-action="obsidian">\u2197</button>
+      </div>
+    `;
+      item.querySelectorAll("[data-action]").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (btn.dataset.action === "edit") openNoteInEditor(btn.dataset.path);
+          else openInObsidian(btn.dataset.path);
+        });
+      });
+      item.addEventListener("click", () => openNoteInEditor(filePath));
+      container.appendChild(item);
+    });
+  }
   async function runSearch() {
     const query = document.getElementById("search-input").value.trim();
     if (!query) return;
@@ -15304,6 +15374,7 @@ ${stripped}`;
       v.classList.toggle("active", v.id === `tab-${tabId}`);
     });
     if (tabId === "recent") loadRecentNotes();
+    if (tabId === "relevant") findRelevantNotes();
   }
   function openInObsidian(filePath) {
     const vaultName = settings.vaultName || "";
@@ -15380,6 +15451,7 @@ ${stripped}`;
       }
     });
     document.getElementById("btn-suggest-tags").addEventListener("click", suggestTags);
+    document.getElementById("btn-find-relevant").addEventListener("click", findRelevantNotes);
     document.getElementById("btn-refresh-recent").addEventListener("click", loadRecentNotes);
     document.getElementById("btn-search").addEventListener("click", runSearch);
     document.getElementById("search-input").addEventListener("keydown", (e) => {

@@ -103,12 +103,20 @@ function loadCapture(payload) {
   switchTab('editor');
   currentFilePath = null;
 
+  // Populate header UI fields from metadata — frontmatter is rebuilt from
+  // these on save and must NOT appear in the editor body.
   if (meta?.title) {
     document.getElementById('note-title').value = sanitizeFilename(meta.title);
   }
+  // Source captures start with no tags; clear any leftover from a previous note.
+  tags = [];
+  renderTags();
 
-  const frontmatter = buildFrontmatter(meta, type);
-  loadMarkdown(frontmatter + '\n' + markdown);
+  // Load only the body — strip any accidental frontmatter block that may be
+  // present in the captured markdown itself (some sites expose meta tags as
+  // YAML-like text at the top).
+  const body = markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trimStart();
+  loadMarkdown(body);
   document.getElementById('btn-open-obsidian').disabled = true;
   document.getElementById('btn-discard').style.display = 'inline-block';
   setStatus('Captured — review and save');
@@ -533,6 +541,116 @@ async function openNoteInEditor(filePath) {
   }
 }
 
+// ── Relevant Notes ──────────────────────────────────────────────────────────
+
+/**
+ * 1. Capture the current tab's text content.
+ * 2. Fetch the vault note index (title + tags of every .md file).
+ * 3. Ask the LLM to rank which notes are most semantically related.
+ * 4. Render the ranked results.
+ *
+ * Triggered automatically when the Relevant tab is opened, and manually via
+ * the refresh button.
+ */
+async function findRelevantNotes() {
+  const list = document.getElementById('relevant-list');
+  list.innerHTML = '<p class="empty-state"><span class="spinner"></span> Analysing page…</p>';
+
+  try {
+    // Step 1 — extract the current page content
+    const pageData = await sendToBackground('captureCurrentTab', { type: 'page' });
+    if (pageData?.error) {
+      showRelevantError(list, pageData.error);
+      return;
+    }
+    const pageText = (pageData?.markdown || '').slice(0, 4000);
+    if (!pageText.trim()) {
+      showRelevantError(list, 'Could not extract page content. Make sure you are on a regular website (http/https).');
+      return;
+    }
+
+    // Step 2 — fetch vault note index (title + tags only, no full bodies)
+    list.innerHTML = '<p class="empty-state"><span class="spinner"></span> Loading vault index…</p>';
+    const indexResult = await sendToBackground('vault:list-notes', {});
+    if (indexResult?.error) throw new Error(indexResult.error);
+    const notes = indexResult?.notes || [];
+    if (!notes.length) {
+      showRelevantError(list, 'No notes found in vault. Check your Settings connection.');
+      return;
+    }
+
+    // Step 3 — ask LLM to rank
+    list.innerHTML = '<p class="empty-state"><span class="spinner"></span> Finding relevant notes…</p>';
+    const result = await sendToBackground('llm:request', { task: 'relevant', content: pageText, notes });
+    if (result?.error) throw new Error(result.error);
+
+    const matches = result?.matches || [];
+    if (!matches.length) {
+      list.innerHTML = '<p class="empty-state">No relevant notes found for this page.</p>';
+      return;
+    }
+
+    // Step 4 — render
+    renderRelevantList(list, matches);
+
+  } catch (err) {
+    showRelevantError(list, err.message);
+  }
+}
+
+/**
+ * Render an error message with a Retry button inside the relevant-list container.
+ * The Retry button re-runs findRelevantNotes so the user doesn't have to leave
+ * the tab (useful after navigating to a new page or reloading).
+ */
+function showRelevantError(container, message) {
+  container.innerHTML = `
+    <div class="relevant-error">
+      <p class="empty-state">${escapeHTML(message)}</p>
+      <button id="btn-relevant-retry" class="btn-secondary compact">Retry</button>
+    </div>
+  `;
+  container.querySelector('#btn-relevant-retry')
+    .addEventListener('click', findRelevantNotes);
+}
+
+function renderRelevantList(container, matches) {
+  container.innerHTML = '';
+  matches.forEach(({ path: filePath, title, reason, score }) => {
+    const parts = filePath.split('/');
+    parts.pop(); // discard filename — title already parsed
+    const folder = parts.join('/');
+    const pct = Math.round(score * 100);
+
+    const item = document.createElement('div');
+    item.className = 'file-item relevant-item';
+    item.dataset.filepath = filePath;
+    item.innerHTML = `
+      <div class="relevant-item-main">
+        <div class="relevant-item-header">
+          <span class="file-item-name">${escapeHTML(title)}</span>
+          <span class="relevance-badge" title="Relevance score">${pct}%</span>
+        </div>
+        <span class="relevant-reason">${escapeHTML(reason)}</span>
+        ${folder ? `<span class="file-item-path">${escapeHTML(folder)}</span>` : ''}
+      </div>
+      <div class="file-item-actions">
+        <button class="icon-btn" data-path="${escapeHTML(filePath)}" title="Open in editor" data-action="edit">✎</button>
+        <button class="icon-btn" data-path="${escapeHTML(filePath)}" title="Open in Obsidian" data-action="obsidian">↗</button>
+      </div>
+    `;
+    item.querySelectorAll('[data-action]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (btn.dataset.action === 'edit') openNoteInEditor(btn.dataset.path);
+        else openInObsidian(btn.dataset.path);
+      });
+    });
+    item.addEventListener('click', () => openNoteInEditor(filePath));
+    container.appendChild(item);
+  });
+}
+
 // ── Search ──────────────────────────────────────────────────────────────────
 async function runSearch() {
   const query = document.getElementById('search-input').value.trim();
@@ -655,6 +773,7 @@ export function switchTab(tabId) {
     v.classList.toggle('active', v.id === `tab-${tabId}`);
   });
   if (tabId === 'recent') loadRecentNotes();
+  if (tabId === 'relevant') findRelevantNotes();
 }
 
 // ── "Open in Obsidian" protocol ──────────────────────────────────────────────
@@ -745,6 +864,7 @@ function bindUI() {
   });
 
   document.getElementById('btn-suggest-tags').addEventListener('click', suggestTags);
+  document.getElementById('btn-find-relevant').addEventListener('click', findRelevantNotes);
   document.getElementById('btn-refresh-recent').addEventListener('click', loadRecentNotes);
   document.getElementById('btn-search').addEventListener('click', runSearch);
   document.getElementById('search-input').addEventListener('keydown', (e) => {

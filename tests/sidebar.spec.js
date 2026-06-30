@@ -1096,3 +1096,199 @@ test('Enter on search input triggers search', async ({ sidebarPage: page }) => {
     { timeout: 5_000 }
   );
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// 16. Relevant Notes tab
+// ────────────────────────────────────────────────────────────────────────────
+
+test('Relevant tab is present in the tab bar', async ({ sidebarPage: page }) => {
+  await expect(page.locator('[data-tab="relevant"]')).toBeVisible();
+  await expect(page.locator('[data-tab="relevant"]')).toHaveText('Relevant');
+});
+
+test('clicking Relevant tab shows relevant panel', async ({ sidebarPage: page }) => {
+  await page.click('[data-tab="relevant"]');
+  await expect(page.locator('#tab-relevant')).toBeVisible();
+  await expect(page.locator('#tab-editor')).not.toBeVisible();
+});
+
+test('Relevant tab shows initial empty state before scan', async ({ sidebarPage: page }) => {
+  // The tab shows the empty state text before any scan runs (or after an error
+  // from the default stub). Either the empty-state placeholder or an error is fine.
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      // captureCurrentTab returns an error to stop the pipeline immediately
+      cb({ error: 'no active tab in test' });
+    };
+  });
+  await page.click('[data-tab="relevant"]');
+  await expect(page.locator('#relevant-list')).toBeVisible({ timeout: 3_000 });
+});
+
+test('refresh button is visible in relevant tab', async ({ sidebarPage: page }) => {
+  await page.click('[data-tab="relevant"]');
+  await expect(page.locator('#btn-find-relevant')).toBeVisible();
+});
+
+test('relevant tab shows error when page capture fails', async ({ sidebarPage: page }) => {
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      if (msg.action === 'captureCurrentTab') {
+        cb({ error: 'Content script unavailable' });
+      } else {
+        cb({ error: 'unexpected' });
+      }
+    };
+  });
+  await page.click('[data-tab="relevant"]');
+  await expect(page.locator('#relevant-list')).toContainText('Content script unavailable', { timeout: 5_000 });
+});
+
+test('relevant tab shows message when no notes found', async ({ sidebarPage: page }) => {
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      if (msg.action === 'captureCurrentTab') {
+        cb({ markdown: 'Some page content about machine learning.', meta: { title: 'Test' } });
+      } else if (msg.action === 'vault:list-notes') {
+        cb({ notes: [] });
+      } else {
+        cb({ error: 'unexpected' });
+      }
+    };
+  });
+  await page.click('[data-tab="relevant"]');
+  await expect(page.locator('#relevant-list')).toContainText('No notes found in vault', { timeout: 5_000 });
+});
+
+test('relevant tab renders matched notes with score and reason', async ({ sidebarPage: page }) => {
+  const mockNotes = [
+    { path: 'AI/neural-networks.md', title: 'Neural Networks', tags: ['ai', 'deep-learning'] },
+    { path: 'AI/transformers.md', title: 'Transformer Architecture', tags: ['ai', 'nlp'] },
+    { path: 'Recipes/pasta.md', title: 'Pasta Recipe', tags: ['food', 'cooking'] },
+  ];
+  const mockMatches = [
+    { path: 'AI/neural-networks.md', title: 'Neural Networks', reason: 'Directly covers neural network training.', score: 0.92 },
+    { path: 'AI/transformers.md', title: 'Transformer Architecture', reason: 'Relates to attention mechanisms.', score: 0.75 },
+  ];
+
+  await page.evaluate(({ notes, matches }) => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      if (msg.action === 'captureCurrentTab') {
+        cb({ markdown: 'Deep learning and neural networks are changing AI.', meta: { title: 'ML Page' } });
+      } else if (msg.action === 'vault:list-notes') {
+        cb({ notes });
+      } else if (msg.action === 'llm:request' && msg.task === 'relevant') {
+        cb({ matches });
+      } else {
+        cb({ error: 'unexpected' });
+      }
+    };
+  }, { notes: mockNotes, matches: mockMatches });
+
+  await page.click('[data-tab="relevant"]');
+  await expect(page.locator('#relevant-list .relevant-item')).toHaveCount(2, { timeout: 5_000 });
+
+  // First result
+  const first = page.locator('#relevant-list .relevant-item').first();
+  await expect(first.locator('.file-item-name')).toHaveText('Neural Networks');
+  await expect(first.locator('.relevance-badge')).toHaveText('92%');
+  await expect(first.locator('.relevant-reason')).toContainText('neural network training');
+
+  // Second result
+  const second = page.locator('#relevant-list .relevant-item').nth(1);
+  await expect(second.locator('.file-item-name')).toHaveText('Transformer Architecture');
+  await expect(second.locator('.relevance-badge')).toHaveText('75%');
+});
+
+test('relevant note sends task=relevant with content and notes to llm:request', async ({ sidebarPage: page }) => {
+  let capturedMsg = null;
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      if (msg.action === 'captureCurrentTab') {
+        cb({ markdown: 'Page about kubernetes and containers.', meta: { title: 'K8s' } });
+      } else if (msg.action === 'vault:list-notes') {
+        cb({ notes: [{ path: 'Infra/k8s.md', title: 'Kubernetes Notes', tags: ['devops', 'k8s'] }] });
+      } else if (msg.action === 'llm:request') {
+        window.__relevantMsg = msg;
+        cb({ matches: [] });
+      } else {
+        cb({ error: 'unexpected' });
+      }
+    };
+  });
+
+  await page.click('[data-tab="relevant"]');
+  await expect(page.locator('#relevant-list')).toContainText('No relevant notes', { timeout: 5_000 });
+
+  const msg = await page.evaluate(() => window.__relevantMsg);
+  expect(msg.action).toBe('llm:request');
+  expect(msg.task).toBe('relevant');
+  expect(typeof msg.content).toBe('string');
+  expect(msg.content.length).toBeGreaterThan(0);
+  expect(Array.isArray(msg.notes)).toBe(true);
+  expect(msg.notes[0].path).toBe('Infra/k8s.md');
+});
+
+test('clicking a relevant note item opens it in the editor', async ({ sidebarPage: page }) => {
+  const noteContent = '---\ntitle: "K8s Guide"\ntags: ["devops"]\n---\n\nKubernetes content here.';
+  await page.evaluate((body) => {
+    let llmDone = false;
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      if (msg.action === 'captureCurrentTab') {
+        cb({ markdown: 'About containers and orchestration.', meta: { title: 'Containers' } });
+      } else if (msg.action === 'vault:list-notes') {
+        cb({ notes: [{ path: 'Infra/k8s.md', title: 'K8s Guide', tags: ['devops'] }] });
+      } else if (msg.action === 'llm:request') {
+        cb({ matches: [{ path: 'Infra/k8s.md', title: 'K8s Guide', reason: 'Covers container orchestration.', score: 0.88 }] });
+      } else if (msg.action === 'vault:request' && msg.payload?.method === 'GET') {
+        cb(body);
+      } else {
+        cb({ error: 'unexpected' });
+      }
+    };
+  }, noteContent);
+
+  await page.click('[data-tab="relevant"]');
+  await expect(page.locator('#relevant-list .relevant-item')).toHaveCount(1, { timeout: 5_000 });
+  await page.locator('#relevant-list .relevant-item').click();
+
+  // Should switch to editor tab and load the note
+  await expect(page.locator('[data-tab="editor"]')).toHaveClass(/active/, { timeout: 3_000 });
+  await expect(page.locator('#note-title')).toHaveValue('K8s Guide', { timeout: 3_000 });
+});
+
+test('relevant tab shows Retry button on error and retry re-runs scan', async ({ sidebarPage: page }) => {
+  // First call fails (simulates non-http page)
+  await page.evaluate(() => {
+    window.__captureCallCount = 0;
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      if (msg.action === 'captureCurrentTab') {
+        window.__captureCallCount = (window.__captureCallCount || 0) + 1;
+        if (window.__captureCallCount === 1) {
+          // First attempt: simulate page not injectable
+          cb({ error: 'Cannot read this page — navigate to a regular website first.' });
+        } else {
+          // Retry: now succeeds
+          cb({ markdown: 'Page about AI and machine learning.', meta: { title: 'AI Page' } });
+        }
+      } else if (msg.action === 'vault:list-notes') {
+        cb({ notes: [{ path: 'Notes/ai.md', title: 'AI Notes', tags: ['ai'] }] });
+      } else if (msg.action === 'llm:request') {
+        cb({ matches: [{ path: 'Notes/ai.md', title: 'AI Notes', reason: 'Both cover AI topics.', score: 0.85 }] });
+      } else {
+        cb({ error: 'unexpected' });
+      }
+    };
+  });
+
+  await page.click('[data-tab="relevant"]');
+
+  // Error state with Retry button
+  await expect(page.locator('#relevant-list')).toContainText('Cannot read this page', { timeout: 5_000 });
+  await expect(page.locator('#btn-relevant-retry')).toBeVisible();
+
+  // Click Retry — should succeed this time and show results
+  await page.click('#btn-relevant-retry');
+  await expect(page.locator('#relevant-list .relevant-item')).toHaveCount(1, { timeout: 5_000 });
+  await expect(page.locator('#relevant-list')).toContainText('AI Notes');
+});
