@@ -15265,6 +15265,69 @@ ${stripped}`;
       container.appendChild(item);
     });
   }
+  async function captureScreenshot(mode = "area") {
+    const btn = document.getElementById("btn-screenshot");
+    const menuBtn = document.getElementById("btn-screenshot-menu");
+    btn.disabled = true;
+    menuBtn.disabled = true;
+    setStatus(mode === "area" ? "Select area\u2026" : "Capturing\u2026");
+    try {
+      const folder = settings.screenshotFolder || "Screenshots";
+      const action = mode === "area" ? "screenshot:area" : "screenshot:capture";
+      const result = await sendToBackground(action, { folder });
+      if (result?.error) throw new Error(result.error);
+      if (result?.cancelled) {
+        setStatus("Screenshot cancelled");
+        return;
+      }
+      insertTextAtCursor(`![[${result.path}]]`);
+      setStatus("Screenshot saved");
+      showToast(`Screenshot saved to ${result.path}`);
+    } catch (err) {
+      setStatus("Screenshot failed");
+      showToast("Screenshot error: " + err.message, "error");
+    } finally {
+      btn.disabled = false;
+      menuBtn.disabled = false;
+    }
+  }
+  function initScreenshotMenu() {
+    const menuBtn = document.getElementById("btn-screenshot-menu");
+    const menu = document.getElementById("screenshot-menu");
+    function closeMenu() {
+      menu.hidden = true;
+      menuBtn.setAttribute("aria-expanded", "false");
+    }
+    menuBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isOpen = !menu.hidden;
+      if (isOpen) {
+        closeMenu();
+      } else {
+        menu.hidden = false;
+        menuBtn.setAttribute("aria-expanded", "true");
+      }
+    });
+    menu.addEventListener("click", (e) => {
+      const item = e.target.closest("[data-action]");
+      if (!item) return;
+      closeMenu();
+      captureScreenshot(item.dataset.action);
+    });
+    document.addEventListener("click", (e) => {
+      if (!document.getElementById("screenshot-btn-group").contains(e.target)) {
+        closeMenu();
+      }
+    });
+  }
+  function insertTextAtCursor(text) {
+    if (!editorView) return;
+    const { state, dispatch } = editorView;
+    const { from: from2 } = state.selection;
+    const textNode = state.schema.text(text);
+    dispatch(state.tr.insertText(text, from2));
+    editorView.focus();
+  }
   async function runSearch() {
     const query = document.getElementById("search-input").value.trim();
     if (!query) return;
@@ -15344,6 +15407,7 @@ ${stripped}`;
       vaultBaseUrl: document.getElementById("cfg-base-url").value.trim(),
       vaultApiKey: document.getElementById("cfg-api-key").value.trim(),
       defaultFolder: document.getElementById("cfg-default-folder").value.trim(),
+      screenshotFolder: document.getElementById("cfg-screenshot-folder").value.trim(),
       llmProvider: document.getElementById("cfg-llm-provider").value,
       llmApiKey: document.getElementById("cfg-llm-api-key").value.trim(),
       llmModel: document.getElementById("cfg-llm-model").value.trim(),
@@ -15354,6 +15418,7 @@ ${stripped}`;
     document.getElementById("cfg-base-url").value = settings.vaultBaseUrl || "";
     document.getElementById("cfg-api-key").value = settings.vaultApiKey || "";
     document.getElementById("cfg-default-folder").value = settings.defaultFolder || "Clippings";
+    document.getElementById("cfg-screenshot-folder").value = settings.screenshotFolder || "Screenshots";
     document.getElementById("cfg-llm-provider").value = settings.llmProvider || "openai";
     document.getElementById("cfg-llm-api-key").value = settings.llmApiKey || "";
     document.getElementById("cfg-llm-model").value = settings.llmModel || "";
@@ -15387,6 +15452,7 @@ ${stripped}`;
   }
   function bindUI() {
     initFolderCombobox();
+    initScreenshotMenu();
     document.querySelectorAll(".tab-btn").forEach((btn) => {
       btn.addEventListener("click", () => switchTab(btn.dataset.tab));
     });
@@ -15450,6 +15516,7 @@ ${stripped}`;
         tagInput.value = "";
       }
     });
+    document.getElementById("btn-screenshot").addEventListener("click", () => captureScreenshot("area"));
     document.getElementById("btn-suggest-tags").addEventListener("click", suggestTags);
     document.getElementById("btn-find-relevant").addEventListener("click", findRelevantNotes);
     document.getElementById("btn-refresh-recent").addEventListener("click", loadRecentNotes);

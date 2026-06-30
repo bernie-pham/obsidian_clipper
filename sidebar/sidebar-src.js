@@ -651,6 +651,89 @@ function renderRelevantList(container, matches) {
   });
 }
 
+// ── Screenshot ───────────────────────────────────────────────────────────────
+
+/**
+ * Run a screenshot action ('area' or 'full') and insert the result into the editor.
+ * @param {'area'|'full'} mode
+ */
+async function captureScreenshot(mode = 'area') {
+  const btn = document.getElementById('btn-screenshot');
+  const menuBtn = document.getElementById('btn-screenshot-menu');
+  btn.disabled = true;
+  menuBtn.disabled = true;
+  setStatus(mode === 'area' ? 'Select area…' : 'Capturing…');
+  try {
+    const folder = settings.screenshotFolder || 'Screenshots';
+    const action = mode === 'area' ? 'screenshot:area' : 'screenshot:capture';
+    const result = await sendToBackground(action, { folder });
+    if (result?.error) throw new Error(result.error);
+    if (result?.cancelled) {
+      setStatus('Screenshot cancelled');
+      return;
+    }
+    // Insert Obsidian wikilink embed at cursor: ![[path/to/file.png]]
+    insertTextAtCursor(`![[${result.path}]]`);
+    setStatus('Screenshot saved');
+    showToast(`Screenshot saved to ${result.path}`);
+  } catch (err) {
+    setStatus('Screenshot failed');
+    showToast('Screenshot error: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    menuBtn.disabled = false;
+  }
+}
+
+/** Toggle the screenshot mode dropdown. Closes on outside click or item select. */
+function initScreenshotMenu() {
+  const menuBtn = document.getElementById('btn-screenshot-menu');
+  const menu    = document.getElementById('screenshot-menu');
+
+  function closeMenu() {
+    menu.hidden = true;
+    menuBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  menuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = !menu.hidden;
+    if (isOpen) {
+      closeMenu();
+    } else {
+      menu.hidden = false;
+      menuBtn.setAttribute('aria-expanded', 'true');
+    }
+  });
+
+  menu.addEventListener('click', (e) => {
+    const item = e.target.closest('[data-action]');
+    if (!item) return;
+    closeMenu();
+    captureScreenshot(item.dataset.action);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!document.getElementById('screenshot-btn-group').contains(e.target)) {
+      closeMenu();
+    }
+  });
+}
+
+/**
+ * Insert plain text at the ProseMirror cursor position.
+ * Falls back to appending a new paragraph if the editor has no selection.
+ */
+function insertTextAtCursor(text) {
+  if (!editorView) return;
+  const { state, dispatch } = editorView;
+  const { from } = state.selection;
+  // Insert as a text node inside a paragraph
+  const textNode = state.schema.text(text);
+  dispatch(state.tr.insertText(text, from));
+  editorView.focus();
+}
+
 // ── Search ──────────────────────────────────────────────────────────────────
 async function runSearch() {
   const query = document.getElementById('search-input').value.trim();
@@ -739,6 +822,7 @@ function readSettingsForm() {
     vaultBaseUrl: document.getElementById('cfg-base-url').value.trim(),
     vaultApiKey: document.getElementById('cfg-api-key').value.trim(),
     defaultFolder: document.getElementById('cfg-default-folder').value.trim(),
+    screenshotFolder: document.getElementById('cfg-screenshot-folder').value.trim(),
     llmProvider: document.getElementById('cfg-llm-provider').value,
     llmApiKey: document.getElementById('cfg-llm-api-key').value.trim(),
     llmModel: document.getElementById('cfg-llm-model').value.trim(),
@@ -750,6 +834,7 @@ function populateSettingsForm() {
   document.getElementById('cfg-base-url').value = settings.vaultBaseUrl || '';
   document.getElementById('cfg-api-key').value = settings.vaultApiKey || '';
   document.getElementById('cfg-default-folder').value = settings.defaultFolder || 'Clippings';
+  document.getElementById('cfg-screenshot-folder').value = settings.screenshotFolder || 'Screenshots';
   document.getElementById('cfg-llm-provider').value = settings.llmProvider || 'openai';
   document.getElementById('cfg-llm-api-key').value = settings.llmApiKey || '';
   document.getElementById('cfg-llm-model').value = settings.llmModel || '';
@@ -791,6 +876,7 @@ function openInObsidian(filePath) {
 function bindUI() {
   // Folder combobox must be initialised before any other events
   initFolderCombobox();
+  initScreenshotMenu();
 
   document.querySelectorAll('.tab-btn').forEach((btn) => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
@@ -863,6 +949,7 @@ function bindUI() {
     }
   });
 
+  document.getElementById('btn-screenshot').addEventListener('click', () => captureScreenshot('area'));
   document.getElementById('btn-suggest-tags').addEventListener('click', suggestTags);
   document.getElementById('btn-find-relevant').addEventListener('click', findRelevantNotes);
   document.getElementById('btn-refresh-recent').addEventListener('click', loadRecentNotes);

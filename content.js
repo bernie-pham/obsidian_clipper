@@ -107,8 +107,143 @@
     };
   }
 
+  // ── Area-selection screenshot picker ─────────────────────────────────────
+  //
+  // When background sends action:'screenshot:pick-area', we overlay a
+  // crosshair selection UI on the page. The user drags to draw a rectangle;
+  // on mouseup we send the device-pixel-ratio-adjusted rect back and tear
+  // down the overlay.
+
+  function startAreaPicker(callback) {
+    // Prevent double-launch
+    if (document.getElementById('__obsidian_picker__')) return;
+
+    const dpr = window.devicePixelRatio || 1;
+
+    // ── Overlay ──────────────────────────────────────────────────────────
+    const overlay = document.createElement('div');
+    overlay.id = '__obsidian_picker__';
+    Object.assign(overlay.style, {
+      position:   'fixed',
+      inset:      '0',
+      zIndex:     '2147483647',   // max z-index
+      cursor:     'crosshair',
+      userSelect: 'none',
+      background: 'rgba(0,0,0,0.35)',
+    });
+
+    // Selection rectangle shown while dragging
+    const selBox = document.createElement('div');
+    Object.assign(selBox.style, {
+      position:   'fixed',
+      border:     '2px solid #7c3aed',
+      background: 'rgba(124,58,237,0.08)',
+      pointerEvents: 'none',
+      display:    'none',
+    });
+    overlay.appendChild(selBox);
+
+    // Instruction label
+    const label = document.createElement('div');
+    Object.assign(label.style, {
+      position:   'fixed',
+      top:        '12px',
+      left:       '50%',
+      transform:  'translateX(-50%)',
+      background: 'rgba(0,0,0,0.75)',
+      color:      '#fff',
+      padding:    '6px 14px',
+      borderRadius: '20px',
+      fontSize:   '13px',
+      fontFamily: 'system-ui, sans-serif',
+      pointerEvents: 'none',
+      whiteSpace: 'nowrap',
+    });
+    label.textContent = 'Drag to select area — Esc to cancel';
+    overlay.appendChild(label);
+
+    document.body.appendChild(overlay);
+
+    // ── Drag state ────────────────────────────────────────────────────────
+    let startX = 0, startY = 0, dragging = false;
+
+    function updateBox(x1, y1, x2, y2) {
+      const left   = Math.min(x1, x2);
+      const top    = Math.min(y1, y2);
+      const width  = Math.abs(x2 - x1);
+      const height = Math.abs(y2 - y1);
+      Object.assign(selBox.style, {
+        left:    left + 'px',
+        top:     top  + 'px',
+        width:   width  + 'px',
+        height:  height + 'px',
+        display: width > 2 && height > 2 ? 'block' : 'none',
+      });
+      return { left, top, width, height };
+    }
+
+    function teardown() {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+
+    function onMouseDown(e) {
+      e.preventDefault();
+      dragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      selBox.style.display = 'none';
+    }
+
+    function onMouseMove(e) {
+      if (!dragging) return;
+      updateBox(startX, startY, e.clientX, e.clientY);
+    }
+
+    function onMouseUp(e) {
+      if (!dragging) return;
+      dragging = false;
+      const { left, top, width, height } = updateBox(startX, startY, e.clientX, e.clientY);
+
+      if (width < 8 || height < 8) {
+        // Too small — treat as a cancel
+        teardown();
+        callback(null);
+        return;
+      }
+
+      teardown();
+      // Scale by devicePixelRatio so the crop aligns with captureVisibleTab output
+      callback({
+        x:      Math.round(left   * dpr),
+        y:      Math.round(top    * dpr),
+        width:  Math.round(width  * dpr),
+        height: Math.round(height * dpr),
+      });
+    }
+
+    function onKey(e) {
+      if (e.key === 'Escape') {
+        teardown();
+        callback(null);
+      }
+    }
+
+    overlay.addEventListener('mousedown', onMouseDown);
+    overlay.addEventListener('mousemove', onMouseMove);
+    overlay.addEventListener('mouseup',   onMouseUp);
+    document.addEventListener('keydown',  onKey);
+  }
+
   // ── Message listener ────────────────────────────────────────────────────
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.action === 'screenshot:pick-area') {
+      startAreaPicker((rect) => {
+        sendResponse({ rect }); // rect is null if cancelled
+      });
+      return true; // keep channel open for async sendResponse
+    }
+
     if (message.action !== 'extract') return;
 
     const meta = getMetadata();

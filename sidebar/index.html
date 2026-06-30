@@ -45,6 +45,25 @@
     <section id="tab-editor" class="tab-view active" role="tabpanel">
       <div class="note-meta-row">
         <input id="note-title" class="note-title-input" type="text" placeholder="Note title…" />
+        <!-- Screenshot split-button: left = area-select, right = dropdown for full-tab -->
+        <div class="screenshot-btn-group" id="screenshot-btn-group">
+          <button id="btn-screenshot" class="icon-btn screenshot-main-btn" title="Capture area screenshot into note">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </button>
+          <button id="btn-screenshot-menu" class="icon-btn screenshot-arrow-btn" title="Screenshot options" aria-haspopup="true" aria-expanded="false">
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M0 2.5l4 4 4-4H0z"/></svg>
+          </button>
+          <ul id="screenshot-menu" class="screenshot-menu" role="menu" hidden>
+            <li role="menuitem" data-action="area" class="screenshot-menu-item screenshot-menu-item--active">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h18" stroke-dasharray="3 2"/></svg>
+              Select area
+            </li>
+            <li role="menuitem" data-action="full" class="screenshot-menu-item">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              Full tab
+            </li>
+          </ul>
+        </div>
         <button id="btn-sync" class="icon-btn" title="Sync from vault" disabled>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
         </button>
@@ -149,8 +168,13 @@
         <input id="cfg-api-key" class="settings-input" type="password" placeholder="Paste your API key…" />
       </div>
       <div class="settings-group">
-        <label class="settings-label" for="cfg-default-folder">Default Folder</label>
+        <label class="settings-label" for="cfg-default-folder">Default Notes Folder</label>
         <input id="cfg-default-folder" class="settings-input" type="text" placeholder="e.g. Clippings/" />
+      </div>
+      <div class="settings-group">
+        <label class="settings-label" for="cfg-screenshot-folder">Screenshots Folder</label>
+        <input id="cfg-screenshot-folder" class="settings-input" type="text" placeholder="e.g. Screenshots/" />
+        <p class="settings-hint">Captured screenshots are saved as PNG files in this vault folder.</p>
       </div>
       <div class="settings-group connection-test-row">
         <button id="btn-test-connection" class="btn-secondary">Test Connection</button>

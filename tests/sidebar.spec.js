@@ -1292,3 +1292,188 @@ test('relevant tab shows Retry button on error and retry re-runs scan', async ({
   await expect(page.locator('#relevant-list .relevant-item')).toHaveCount(1, { timeout: 5_000 });
   await expect(page.locator('#relevant-list')).toContainText('AI Notes');
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// 17. Screenshot capture
+// ────────────────────────────────────────────────────────────────────────────
+
+test('screenshot button is visible in editor toolbar', async ({ sidebarPage: page }) => {
+  await expect(page.locator('#btn-screenshot')).toBeVisible();
+});
+
+test('screenshot button title indicates its purpose', async ({ sidebarPage: page }) => {
+  await expect(page.locator('#btn-screenshot')).toHaveAttribute('title', 'Capture area screenshot into note');
+});
+
+test('screenshot button has a dropdown arrow button', async ({ sidebarPage: page }) => {
+  await expect(page.locator('#btn-screenshot-menu')).toBeVisible();
+  await expect(page.locator('#btn-screenshot-menu')).toHaveAttribute('aria-haspopup', 'true');
+});
+
+test('screenshot menu is hidden by default', async ({ sidebarPage: page }) => {
+  await expect(page.locator('#screenshot-menu')).toBeHidden();
+});
+
+test('clicking dropdown arrow opens the screenshot menu', async ({ sidebarPage: page }) => {
+  await page.click('#btn-screenshot-menu');
+  await expect(page.locator('#screenshot-menu')).toBeVisible();
+});
+
+test('screenshot menu has Select area and Full tab options', async ({ sidebarPage: page }) => {
+  await page.click('#btn-screenshot-menu');
+  await expect(page.locator('#screenshot-menu [data-action="area"]')).toBeVisible();
+  await expect(page.locator('#screenshot-menu [data-action="full"]')).toBeVisible();
+});
+
+test('clicking outside screenshot menu closes it', async ({ sidebarPage: page }) => {
+  await page.click('#btn-screenshot-menu');
+  await expect(page.locator('#screenshot-menu')).toBeVisible();
+  await page.click('#note-title');
+  await expect(page.locator('#screenshot-menu')).toBeHidden();
+});
+
+test('main screenshot button sends screenshot:area with folder to background', async ({ sidebarPage: page }) => {
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      window.__screenshotMsg = msg;
+      if (msg.action === 'screenshot:area') {
+        cb({ path: 'Screenshots/screenshot_2024-01-01_120000.png', filename: 'screenshot_2024-01-01_120000.png' });
+      } else {
+        cb({ error: 'unexpected' });
+      }
+    };
+  });
+
+  await page.click('#btn-screenshot');
+
+  await expect(page.locator('#save-status')).toContainText('Screenshot saved', { timeout: 5_000 });
+  const msg = await page.evaluate(() => window.__screenshotMsg);
+  expect(msg.action).toBe('screenshot:area');
+  expect(typeof msg.folder).toBe('string');
+  expect(msg.folder).toBe('Screenshots'); // default value
+});
+
+test('Select area menu item sends screenshot:area to background', async ({ sidebarPage: page }) => {
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      window.__screenshotMsg = msg;
+      if (msg.action === 'screenshot:area') {
+        cb({ path: 'Screenshots/screenshot_area.png', filename: 'screenshot_area.png' });
+      } else {
+        cb({ error: 'unexpected' });
+      }
+    };
+  });
+
+  await page.click('#btn-screenshot-menu');
+  await page.click('#screenshot-menu [data-action="area"]');
+
+  await expect(page.locator('#save-status')).toContainText('Screenshot saved', { timeout: 5_000 });
+  const msg = await page.evaluate(() => window.__screenshotMsg);
+  expect(msg.action).toBe('screenshot:area');
+});
+
+test('Full tab menu item sends screenshot:capture to background', async ({ sidebarPage: page }) => {
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      window.__screenshotMsg = msg;
+      if (msg.action === 'screenshot:capture') {
+        cb({ path: 'Screenshots/screenshot_full.png', filename: 'screenshot_full.png' });
+      } else {
+        cb({ error: 'unexpected' });
+      }
+    };
+  });
+
+  await page.click('#btn-screenshot-menu');
+  await page.click('#screenshot-menu [data-action="full"]');
+
+  await expect(page.locator('#save-status')).toContainText('Screenshot saved', { timeout: 5_000 });
+  const msg = await page.evaluate(() => window.__screenshotMsg);
+  expect(msg.action).toBe('screenshot:capture');
+});
+
+test('screenshot inserts wikilink embed into editor at cursor', async ({ sidebarPage: page }) => {
+  const vaultPath = 'Screenshots/screenshot_2024-01-01_120000.png';
+  await page.evaluate((path) => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      if (msg.action === 'screenshot:area') {
+        cb({ path, filename: path.split('/').pop() });
+      } else {
+        cb({ error: 'unexpected' });
+      }
+    };
+  }, vaultPath);
+
+  await page.click('#btn-screenshot');
+
+  // The wikilink should appear in the ProseMirror editor
+  await expect(page.locator('.ProseMirror')).toContainText(`![[${vaultPath}]]`, { timeout: 5_000 });
+});
+
+test('screenshot shows error toast when capture fails', async ({ sidebarPage: page }) => {
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      if (msg.action === 'screenshot:area') {
+        cb({ error: 'Vault not configured. Please check Settings.' });
+      } else {
+        cb({ error: 'unexpected' });
+      }
+    };
+  });
+
+  await page.click('#btn-screenshot');
+
+  await expect(page.locator('#save-status')).toContainText('Screenshot failed', { timeout: 5_000 });
+});
+
+test('screenshot folder setting field is present in settings tab', async ({ sidebarPage: page }) => {
+  await page.click('[data-tab="settings"]');
+  await expect(page.locator('#cfg-screenshot-folder')).toBeVisible();
+  await expect(page.locator('#cfg-screenshot-folder')).toHaveAttribute('placeholder', 'e.g. Screenshots/');
+});
+
+test('screenshot folder defaults to Screenshots in settings form', async ({ sidebarPage: page }) => {
+  await page.click('[data-tab="settings"]');
+  await expect(page.locator('#cfg-screenshot-folder')).toHaveValue('Screenshots');
+});
+
+test('screenshot folder is saved and used when capturing', async ({ sidebarPage: page }) => {
+  // Change the screenshot folder in settings
+  await page.click('[data-tab="settings"]');
+  await page.fill('#cfg-screenshot-folder', 'Assets/Images');
+
+  // Stub storage.set to capture what gets saved
+  await page.evaluate(() => {
+    const orig = window.chrome.storage.local.set;
+    window.chrome.storage.local.set = function (data, cb) {
+      window.__savedSettings = data.settings;
+      orig.call(this, data, cb);
+    };
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      cb({});
+    };
+  });
+  await page.click('#btn-save-settings');
+  const saved = await page.evaluate(() => window.__savedSettings);
+  expect(saved.screenshotFolder).toBe('Assets/Images');
+
+  // Now capture — should send the custom folder
+  await page.evaluate(() => {
+    window.chrome.runtime.sendMessage = function (msg, cb) {
+      if (msg.action === 'screenshot:area') {
+        window.__captureFolder = msg.folder;
+        cb({ path: `${msg.folder}/screenshot_test.png`, filename: 'screenshot_test.png' });
+      } else {
+        cb({});
+      }
+    };
+  });
+
+  await page.click('[data-tab="editor"]');
+  await page.click('#btn-screenshot');
+
+  await expect(page.locator('#save-status')).toContainText('Screenshot saved', { timeout: 5_000 });
+  const folder = await page.evaluate(() => window.__captureFolder);
+  expect(folder).toBe('Assets/Images');
+});

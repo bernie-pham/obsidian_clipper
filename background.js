@@ -96,6 +96,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
 
+    // Full-tab screenshot (no area selection).
+    case 'screenshot:capture': {
+      handleScreenshotCapture(message.folder, null).then(sendResponse).catch((err) => {
+        sendResponse({ error: err.message });
+      });
+      return true;
+    }
+
+    // Area-selection screenshot:
+    //   1. Ensures content script is running in the active tab.
+    //   2. Captures the full tab screenshot immediately (before overlay appears
+    //      so the overlay itself is not in the image).
+    //   3. Sends 'screenshot:pick-area' to the content script which shows the
+    //      drag-selection overlay and resolves with the chosen rect.
+    //   4. Crops the full screenshot to the rect via OffscreenCanvas and saves.
+    case 'screenshot:area': {
+      handleAreaScreenshot(message.folder).then(sendResponse).catch((err) => {
+        sendResponse({ error: err.message });
+      });
+      return true;
+    }
+
     // Returns a lightweight index of all vault .md files with title + tags
     // extracted from frontmatter — used by the Relevant Notes feature.
     case 'vault:list-notes': {
@@ -194,7 +216,10 @@ async function readVaultFile(filePath) {
 async function vaultFetch(method, url, body, headers) {
   const opts = { method, headers };
   if (body !== null && body !== undefined) {
-    opts.body = typeof body === 'string' ? body : JSON.stringify(body);
+    // Pass ArrayBuffer and strings as-is; JSON-encode everything else.
+    opts.body = (body instanceof ArrayBuffer || typeof body === 'string')
+      ? body
+      : JSON.stringify(body);
   }
   const res = await fetch(url, opts);
   if (!res.ok) {
@@ -284,6 +309,113 @@ async function handleLLMTest({ provider, apiKey, model, endpoint }) {
   const client = new LLMClient({ provider, apiKey, model, endpoint });
   const result = await client.complete('Reply with the single word: ok');
   return { ok: true, reply: result.trim().slice(0, 100) };
+}
+
+// ── Screenshot capture ────────────────────────────────────────────────────────
+
+/**
+ * Capture the full visible tab, optionally crop to `rect`, save to vault.
+ * @param {string|null} folder  - override folder (uses settings.screenshotFolder if null)
+ * @param {{x,y,width,height}|null} rect - pixel-space crop rectangle, or null for full tab
+ */
+async function handleScreenshotCapture(folder, rect) {
+  const settings = await getSettings();
+  if (!settings.vaultBaseUrl || !settings.vaultApiKey) {
+    throw new Error('Vault not configured. Please check Settings.');
+  }
+  const screenshotFolder = (folder || settings.screenshotFolder || 'Screenshots').replace(/\/$/, '');
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) throw new Error('No active tab found.');
+
+  const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+
+  // Crop if a rect was provided, otherwise use the full image
+  const buffer = rect
+    ? await cropPng(dataUrl, rect)
+    : await (await fetch(dataUrl)).arrayBuffer();
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
+  const filename = `screenshot_${stamp}.png`;
+  const vaultPath = `${screenshotFolder}/${filename}`;
+
+  const uploadUrl = `${settings.vaultBaseUrl.replace(/\/$/, '')}/vault/${vaultPath.split('/').map(encodeURIComponent).join('/')}`;
+  await vaultFetch('PUT', uploadUrl, buffer, {
+    Authorization: `Bearer ${settings.vaultApiKey}`,
+    'Content-Type': 'image/png',
+  });
+  return { path: vaultPath, filename };
+}
+
+/**
+ * Area-selection screenshot flow:
+ *   1. Ensure content script is running.
+ *   2. Capture the full tab BEFORE showing the overlay (clean image).
+ *   3. Show the drag-select overlay in the page via content.js.
+ *   4. Crop the captured image to the selected rect.
+ *   5. Save and return the vault path.
+ */
+async function handleAreaScreenshot(folder) {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) throw new Error('No active tab found.');
+
+  const url = tab.url || '';
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    throw new Error('Cannot capture area — navigate to a regular website first.');
+  }
+
+  // Ensure content script is available
+  const probe = await sendTabMessage(tab.id, { action: 'screenshot:pick-area-probe' });
+  if (probe === null) {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+  }
+
+  // Step 1: capture BEFORE the overlay appears so the overlay is not in the image
+  const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+
+  // Step 2: show overlay and wait for user to pick an area
+  const pickResult = await new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tab.id, { action: 'screenshot:pick-area' }, (resp) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else {
+        resolve(resp);
+      }
+    });
+  });
+
+  if (!pickResult?.rect) {
+    // User cancelled
+    return { cancelled: true };
+  }
+
+  // Step 3: crop and save
+  return handleScreenshotCapture(folder, pickResult.rect);
+}
+
+/**
+ * Crop a PNG data URL to the given pixel rectangle using OffscreenCanvas.
+ * Available in Chrome MV3 service workers (Chrome 87+).
+ * Returns an ArrayBuffer of the cropped PNG.
+ */
+async function cropPng(dataUrl, { x, y, width, height }) {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const bitmap = await createImageBitmap(blob);
+
+  // Clamp to bitmap bounds to avoid empty draws
+  const sx = Math.max(0, Math.min(x, bitmap.width));
+  const sy = Math.max(0, Math.min(y, bitmap.height));
+  const sw = Math.min(width,  bitmap.width  - sx);
+  const sh = Math.min(height, bitmap.height - sy);
+
+  const canvas = new OffscreenCanvas(sw, sh);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
+  bitmap.close();
+
+  const outBlob = await canvas.convertToBlob({ type: 'image/png' });
+  return outBlob.arrayBuffer();
 }
 
 // ── Tab capture ───────────────────────────────────────────────────────────────
